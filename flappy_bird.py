@@ -158,19 +158,30 @@ class Base:
         win.blit(self.image, (self.x2, self.y))  # draw the base
 
     
-def draw_window(win, bird,pipes = [],base= None, score = 0):
+def draw_window(win, birds,pipes = [],base= None, score = 0):
     win.blit(bg_image, (0, 0))  # Draw the background blit means to draw the image on the window
     for pipe in pipes:  # Draw each pipe in the list of pipes
         pipe.draw(win)
     score_label = stat_font.render("Score: " + str(score), 1, (255, 255, 255))  # Render the score label
     win.blit(score_label, (WIN_WIDTH - score_label.get_width() - 15, 10))  # Draw the score label on the window
     base.draw(win)  # Draw the base
-    bird.draw(win)  # Draw the bird
+    for bird in birds:  # Draw each bird in the list of birds
+        bird.draw(win)  # Draw the bird
     pygame.display.update()  # Update the display
 
 ###### Main Function ######
-def main():
-    bird = Bird(230, 350)  # Create a bird instance at position (230, 350)
+def main(genomes, config):
+    nets = []  # List to hold the neural networks for each bird
+    ge = []  # List to hold the genome objects for each bird this is a tuple of (id, genome)
+    birds = []
+
+    for _,g in genomes:  # Iterate through the genomes
+        net = neat.nn.FeedForwardNetwork.create(g, config)  # Create a neural network for each genome
+        nets.append(net)  # Add the neural network to the list
+        birds.append(Bird(230, 350))  # Create a Bird instance and add it to the list
+        g.fitness = 0  # Initialize the fitness of the genome to 0
+        ge.append(g)  # Add the genome to the list
+
     base = Base(730)  # Create a base instance at y position 730
     pipes = [Pipe(600)]  # Create a list of pipes with one pipe at x position 700
     win = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))  # Create a window with specified width and height
@@ -184,37 +195,66 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
-        #bird.move()  # Move the bird based on its velocity and gravity
+                pygame.quit()  # Quit the game if the window is closed
+                quit()
+        
+        pipe_index = 0  # Index of the current pipe
+        if len(birds) > 0:  # If there are birds in the game
+            if len(pipes) > 1 and birds[0].x > pipes[0].x + pipes[0].top_pipe.get_width():
+                pipe_index = 1  # If the first bird has passed the first pipe, set the index to 1 to check the second
+        else:
+            run = False
+            break  # If there are no birds left, end the game loop
+    
+        for x, bird in enumerate(birds):  # Iterate through the list of birds
+            bird.move()
+            ge[x].fitness += 0.1  # Increment the fitness of the genome for each frame the bird is alive
+            output = nets[x].activate((bird.y, abs(bird.y - pipes[pipe_index].height), abs(bird.y - pipes[pipe_index].bottom)))
+
+            if output[0] > 0.5:  # If the output of the neural network is greater than 0.5, make the bird jump
+                bird.jump()
+        
         add_pipe = False  # Flag to check if a new pipe should be added
         rem = []
         for pipe in pipes:  # Move each pipe in the list of pipes
-            if pipe.collide(bird):
-                pass
+            for x, bird in enumerate(birds):  # Iterate through the list of birds
+                if pipe.collide(bird):
+                    ge[x].fitness -= 1 # Decrease the fitness of the genome if the bird collides with a pipe
+                    birds.pop(x)  # Remove the bird from the list if it collides with a pipe
+                    nets.pop(x)  # Remove the neural network associated with the bird
+                    ge.pop(x)  # Remove the genome associated with the bird
+                
+                if not pipe.passed and pipe.x < bird.x:  # If the bird has not passed the pipe and the pipe is to the left of the bird
+                    pipe.passed = True
+                    add_pipe = True  # Set a flag to add a new pipe
 
             if pipe.x + pipe.top_pipe.get_width() < 0:
                 rem.append(pipe)  # If the pipe goes off the screen, remove it from the list
-            if not pipe.passed and pipe.x < bird.x:  # If the bird has not passed the pipe and the pipe is to the left of the bird
-                pipe.passed = True
-                add_pipe = True  # Set a flag to add a new pipe
 
             pipe.move()
         if add_pipe:
             score += 1  # Increment the score if the bird has passed a pipe
+            for g in ge:
+                g.fitness += 5 # Increase the fitness of the genome for passing a pipe
             pipes.append(Pipe(600))  # Add a new pipe to the list of pipes
         
         for r in rem:  # Remove pipes that have gone off the screen
             pipes.remove(r)
-
-        if bird.y + bird.img.get_height() >= 730:  # If the bird goes below the base
-            pass
+    
+        for x,bird in enumerate(birds):  # Move each bird in the list of birds
+            if bird.y + bird.img.get_height() >= 730 or bird.y < 0:  # If the bird goes below the base
+                birds.pop(x)  # Remove the bird from the list
+                nets.pop(x)  # Remove the neural network associated with the bird
+                ge.pop(x)  # Remove the genome associated with the bird
 
         base.move()
-        draw_window(win, bird, pipes, base, score)  # Draw the window with the bird, pipes, and base
+        draw_window(win, birds, pipes, base, score)  # Draw the window with the bird, pipes, and base
     
-    pygame.quit()  # Quit the game if the window is closed
-    quit()
 
-main()  # Run the main function to start the game
+
+# This code implements a Flappy Bird game using the NEAT (NeuroEvolution of Augmenting Topologies) algorithm
+# The game features a bird that the player controls to avoid pipes, with the help of a neural network that learns to play the game
+# The NEAT algorithm evolves the neural networks over generations
 
 def run(config_path):
     # This function is a placeholder for running the NEAT algorithm with the given configuration file
